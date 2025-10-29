@@ -63,9 +63,12 @@ def main_loop():
     video_writer = None                       # OpenCV视频写入对象
     output_filename = ""                      # 输出视频文件名
     # ================================================================
+    # 定义处理分辨率和显示窗口大小
+    PROCESS_RESOLUTION = (2048, 1080)  # 处理分辨率
+    DISPLAY_SIZE = (640, 480)         # 显示窗口大小，可以根据需要调整
+
 
     while (cv2.waitKey(1) & 0xFF) != ord('q'):
-        # 从相机取一帧图片
         try:
             pRawData, FrameHead = mvsdk.CameraGetImageBuffer(hCamera, 200)
             mvsdk.CameraImageProcess(hCamera, pRawData, pFrameBuffer, FrameHead)
@@ -79,33 +82,32 @@ def main_loop():
             frame = np.frombuffer(frame_data, dtype=np.uint8)
             frame = frame.reshape((FrameHead.iHeight, FrameHead.iWidth, 1 if FrameHead.uiMediaType == mvsdk.CAMERA_MEDIA_TYPE_MONO8 else 3))
 
-            frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_LINEAR)
-            cv2.imshow("Press q to end, s to start recording, e to stop", frame)
+            # 修改这里：调整处理分辨率，但显示时缩小
+            high_res_frame = cv2.resize(frame, PROCESS_RESOLUTION, interpolation=cv2.INTER_LINEAR)
+            display_frame = cv2.resize(high_res_frame, DISPLAY_SIZE, interpolation=cv2.INTER_LINEAR)
+            
+            cv2.imshow("Press q to end, s to start recording, e to stop", display_frame)
 
-            # ==================== 新增：按键检测与视频录制控制 ====================
             key = cv2.waitKey(1) & 0xFF
-            if key == ord('s'):  # 按下 's' 开始录制
+            if key == ord('s'):  # 开始录制
                 if not is_recording:
-                    # 生成带时间戳的文件名，避免重复
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                     output_filename = f"recording_{timestamp}.avi"
                     
-                    # 获取当前帧的宽高和通道数
-                    height, width = frame.shape[:2]
-                    fps = 25  # 可以调整为你想要的帧率，比如 25, 30
+                    # 使用高分辨率保存视频
+                    height, width = PROCESS_RESOLUTION[1], PROCESS_RESOLUTION[0]
+                    fps = 25
 
-                    # 选择编码器，通常用 MJPG (Motion-JPEG) 格式，兼容性好
-                    fourcc = cv2.VideoWriter_fourcc(*'MJPG')  # 或者使用 'XVID' 如果需要 MP4
-
+                    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
                     video_writer = cv2.VideoWriter(output_filename, fourcc, fps, (width, height))
                     
                     if video_writer.isOpened():
                         is_recording = True
-                        print(f"✅ 开始录制视频，保存为: {output_filename}")
+                        print(f"✅ 开始录制视频，分辨率: {width}x{height}，保存为: {output_filename}")
                     else:
                         print("❌ 无法创建视频文件，请检查路径或编码器！")
 
-            elif key == ord('e'):  # 按下 'e' 停止录制
+            elif key == ord('e'):  # 停止录制
                 if is_recording:
                     if video_writer is not None:
                         video_writer.release()
@@ -113,29 +115,22 @@ def main_loop():
                     is_recording = False
                     print("⏹️ 停止录制视频")
 
-            elif is_recording:  # 如果正在录制，且不是切换按键，则写入当前帧
+            elif is_recording:  # 如果正在录制，写入高分辨率帧
                 if video_writer is not None and video_writer.isOpened():
-                    video_writer.write(frame)
-
-            # ===================================================================
+                    video_writer.write(high_res_frame)
 
         except mvsdk.CameraException as e:
             if e.error_code != mvsdk.CAMERA_STATUS_TIME_OUT:
                 print("CameraGetImageBuffer failed({}): {}".format(e.error_code, e.message))
 
-    # ==================== 程序退出前释放资源 ====================
-    # 如果还在录制，先停止录制
+    # 释放资源
     if is_recording:
         if video_writer is not None:
             video_writer.release()
-            video_writer = None
         is_recording = False
         print("🛑 程序退出前已停止录制")
 
-    # 关闭相机
     mvsdk.CameraUnInit(hCamera)
-
-    # 释放帧缓存
     mvsdk.CameraAlignFree(pFrameBuffer)
 
 def main():
