@@ -185,3 +185,17 @@ def main():
 
 if __name__ == "__main__":
     main()
+(raft_gpu) nvidia@nvidia:~/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo$ python3 cv_grab.py
+0: MV-S2UC1606GC#0 USB3.0
+acProductSeries:U3V
+acProductName:MV-S2UC1606GC
+acFriendlyName:MV-S2UC1606GC#0
+acLinkName:MvCamera_f622_ca620
+acDriverVersion:1.0.0.0
+acSensorType:CMOS 16.0M
+acPortType:USB3.0
+acSn:045042620258
+uInstance:0
+❌ 录像初始化失败，错误码: -4
+   错误信息: 不支持该功能
+
