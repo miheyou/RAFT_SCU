@@ -207,3 +207,41 @@ def main():
 
 if __name__ == "__main__":
     main()
+(raft_gpu) nvidia@nvidia:~/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo$ python3 cv_grab.py
+0: MV-S2UC1606GC#0 USB3.0
+acProductSeries:U3V
+acProductName:MV-S2UC1606GC
+acFriendlyName:MV-S2UC1606GC#0
+acLinkName:MvCamera_f622_ca620
+acDriverVersion:1.0.0.0
+acSensorType:CMOS 16.0M
+acPortType:USB3.0
+acSn:044092820086
+uInstance:0
+⚠️ [警告] 相机不支持硬件降采样，帧率可能受限于USB带宽或传感器读出速度
+✨ [策略] 设置像素时钟为高速模式: Normal (Index: 0)
+📷 最终输出分辨率: 4096 x 4096
+FPS: 12.5 | Exp: 21.0ms | Res: 4096x4096
+FPS: 16.1 | Exp: 23.1ms | Res: 4096x4096
+FPS: 15.9 | Exp: 23.1ms | Res: 4096x4096
+FPS: 15.9 | Exp: 23.1ms | Res: 4096x4096
+FPS: 15.8 | Exp: 23.1ms | Res: 4096x4096
+FPS: 15.9 | Exp: 23.1ms | Res: 4096x4096
+FPS: 15.8 | Exp: 23.1ms | Res: 4096x4096
+FPS: 15.6 | Exp: 23.1ms | Res: 4096x4096
+FPS: 16.0 | Exp: 23.1ms | Res: 4096x4096
+FPS: 16.3 | Exp: 23.1ms | Res: 4096x4096
+FPS: 16.3 | Exp: 23.1ms | Res: 4096x4096
+FPS: 16.2 | Exp: 23.1ms | Res: 4096x4096
+FPS: 16.1 | Exp: 23.1ms | Res: 4096x4096
+FPS: 15.4 | Exp: 23.0ms | Res: 4096x4096
+^CTraceback (most recent call last):
+  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/cv_grab.py", line 209, in <module>
+    main()
+  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/cv_grab.py", line 204, in main
+    main_loop()
+  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/cv_grab.py", line 131, in main_loop
+    mvsdk.CameraImageProcess(hCamera, pRawData, pFrameBuffer, FrameHead)
+  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/mvsdk.py", line 699, in CameraImageProcess
+    err_code = _sdk.CameraImageProcess(hCamera, c_void_p(pbyIn), c_void_p(pbyOut), byref(pFrInfo))
+KeyboardInterrupt
