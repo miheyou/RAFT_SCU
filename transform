@@ -3,9 +3,8 @@ import cv2
 import numpy as np
 import mvsdk
 import platform
-import datetime  # 用于生成带时间戳的文件名
-import time     # 用于帧率计算
-
+import datetime
+import time
 
 def main_loop():
     # 枚举相机
@@ -31,103 +30,93 @@ def main_loop():
 
     # 获取相机特性描述
     cap = mvsdk.CameraGetCapability(hCamera)
-
-    # 判断是黑白相机还是彩色相机
     monoCamera = (cap.sIspCapacity.bMonoSensor != 0)
 
-    # 黑白相机让ISP直接输出MONO数据
     if monoCamera:
         mvsdk.CameraSetIspOutFormat(hCamera, mvsdk.CAMERA_MEDIA_TYPE_MONO8)
     else:
         mvsdk.CameraSetIspOutFormat(hCamera, mvsdk.CAMERA_MEDIA_TYPE_BGR8)
 
-    # ==================== 【修改1】降低分辨率以换取帧率 ====================
-    # 1600万像素全分辨率下，物理传输极限可能只有 15FPS 左右。
-    # 必须通过 Skip 或 Binning 降低分辨率才能获得高帧率。
+    # ==================== 【核心修改】强制设置 ROI (裁剪) ====================
+    # 既然硬件不支持 Binning，为了提速，我们手动设置一个较小的分辨率 (ROI)
+    # 原始分辨率 4096 x 4096 太大，跑不动。
+    # 这里我们将分辨率设置为 1920 x 1080 (居中裁剪)
     
+    # 1. 获取当前分辨率配置
     pImageResolution = mvsdk.CameraGetImageResolution(hCamera)
-    is_resolution_reduced = False
+    
+    # 2. 设置目标分辨率 (您可以修改这里的值，比如 2048x2048)
+    target_w = 1920
+    target_h = 1080
+    
+    # 确保不超过相机最大物理分辨率
+    max_w = cap.sResolutionRange.iWidthMax
+    max_h = cap.sResolutionRange.iHeightMax
+    
+    if target_w > max_w: target_w = max_w
+    if target_h > max_h: target_h = max_h
+    
+    # 3. 计算居中偏移量
+    offset_x = (max_w - target_w) // 2
+    offset_y = (max_h - target_h) // 2
+    
+    # 4. 应用设置
+    # iIndex = 0xff 表示自定义 ROI 模式
+    pImageResolution.iIndex = 0xff 
+    pImageResolution.iWidth = target_w
+    pImageResolution.iHeight = target_h
+    pImageResolution.iWidthFOV = target_w
+    pImageResolution.iHeightFOV = target_h
+    pImageResolution.iHOffsetFOV = offset_x
+    pImageResolution.iVOffsetFOV = offset_y
+    
+    mvsdk.CameraSetImageResolution(hCamera, pImageResolution)
+    print(f"✂️ [策略] 已应用 ROI 裁剪: {target_w}x{target_h} (居中偏移: {offset_x},{offset_y})")
+    print("   (注: 视野会变小，但这是在该相机上提升帧率的唯一办法)")
+    # ======================================================================
 
-    # 优先尝试 Skip 模式 (抽样)，通常帧率提升最明显
-    if cap.sResolutionRange.uSkipModeMask & 1: 
-        pImageResolution.uSkipMode = 1  # 1 表示 2x2 Skip
-        mvsdk.CameraSetImageResolution(hCamera, pImageResolution)
-        print("✅ [策略] 已开启 2x2 Skip 模式 (分辨率 1/4)")
-        is_resolution_reduced = True
-        
-    # 其次尝试 Binning Sum (求和)，会变亮且提升帧率
-    elif cap.sResolutionRange.uBinSumModeMask & 1:
-        pImageResolution.uBinSumMode = 1
-        mvsdk.CameraSetImageResolution(hCamera, pImageResolution)
-        print("✅ [策略] 已开启 2x2 Binning Sum 模式")
-        is_resolution_reduced = True
-        
-    # 再次尝试 Binning Average (求均值)
-    elif cap.sResolutionRange.uBinAverageModeMask & 1:
-        pImageResolution.uBinAverageMode = 1
-        mvsdk.CameraSetImageResolution(hCamera, pImageResolution)
-        print("✅ [策略] 已开启 2x2 Binning Avg 模式")
-        is_resolution_reduced = True
-    else:
-        print("⚠️ [警告] 相机不支持硬件降采样，帧率可能受限于USB带宽或传感器读出速度")
-
-    # ==================== 【修改2】设置最高速模式 ====================
+    # 设置高速模式
     if cap.iFrameSpeedDesc > 0:
         target_speed_index = cap.iFrameSpeedDesc - 1
-        desc = cap.pFrameSpeedDesc[target_speed_index].GetDescription()
         mvsdk.CameraSetFrameSpeed(hCamera, target_speed_index)
-        print(f"✨ [策略] 设置像素时钟为高速模式: {desc} (Index: {target_speed_index})")
 
-    # 相机模式切换成连续采集
+    # 连续采集
     mvsdk.CameraSetTriggerMode(hCamera, 0)
 
-    # ==================== 【修改3】自动曝光限制 ====================
+    # 自动曝光配置 (限制最大曝光时间)
     mvsdk.CameraSetAeState(hCamera, 1)
-    
-    # 限制最大曝光时间为 30ms (保证理论帧率 > 33 FPS)
-    # 如果您的环境光很亮，可以进一步降低这个值，例如 15000 (15ms)
-    MAX_EXPOSURE_TIME_US = 30 * 1000 
-    mvsdk.CameraSetAeExposureRange(hCamera, 200, MAX_EXPOSURE_TIME_US)
-    
-    # 提高增益上限，补偿短曝光带来的变暗
-    max_gain = min(32, cap.sExposeDesc.uiAnalogGainMax) 
+    # 限制曝光时间为 30ms
+    mvsdk.CameraSetAeExposureRange(hCamera, 200, 30 * 1000)
+    # 提高增益上限
+    max_gain = min(64, cap.sExposeDesc.uiAnalogGainMax)
     mvsdk.CameraSetAeAnalogGainRange(hCamera, cap.sExposeDesc.uiAnalogGainMin, max_gain)
-    mvsdk.CameraSetAeTarget(hCamera, 120) # 目标亮度
-    
-    # 白平衡
+    mvsdk.CameraSetAeTarget(hCamera, 120)
     mvsdk.CameraSetOnceWB(hCamera)
 
-    # 让SDK内部取图线程开始工作
+    # 开始采集
     mvsdk.CameraPlay(hCamera)
 
-    # 重新获取分辨率（因为上面可能修改了）
+    # 最终确认分辨率
     final_res = mvsdk.CameraGetImageResolution(hCamera)
     print(f"📷 最终输出分辨率: {final_res.iWidth} x {final_res.iHeight}")
 
-    # 计算buffer大小
-    FrameBufferSize = cap.sResolutionRange.iWidthMax * \
-        cap.sResolutionRange.iHeightMax * (1 if monoCamera else 3)
-
-    # 分配RGB buffer
+    # Buffer 计算
+    FrameBufferSize = final_res.iWidth * final_res.iHeight * (1 if monoCamera else 3)
     pFrameBuffer = mvsdk.CameraAlignMalloc(FrameBufferSize, 16)
 
-    # 录像变量
+    # 变量初始化
     is_recording = False
     video_writer = None
-    
-    # 帧率变量
     fps_counter = 0
     fps_start_time = time.time()
     current_fps = 0
     
-    # 处理和显示
-    PROCESS_RESOLUTION = (1920, 1080) # 降低处理分辨率以减轻Jetson CPU负担
+    # 显示设置
     DISPLAY_SIZE = (640, 480)
 
     while (cv2.waitKey(1) & 0xFF) != ord('q'):
         try:
             pRawData, FrameHead = mvsdk.CameraGetImageBuffer(hCamera, 200)
-            
             mvsdk.CameraImageProcess(hCamera, pRawData, pFrameBuffer, FrameHead)
             mvsdk.CameraReleaseImageBuffer(hCamera, pRawData)
 
@@ -139,24 +128,19 @@ def main_loop():
             frame = frame.reshape((FrameHead.iHeight, FrameHead.iWidth,
                                   1 if FrameHead.uiMediaType == mvsdk.CAMERA_MEDIA_TYPE_MONO8 else 3))
 
-            # 缩放
-            high_res_frame = cv2.resize(frame, PROCESS_RESOLUTION, interpolation=cv2.INTER_LINEAR)
-            display_frame = cv2.resize(high_res_frame, DISPLAY_SIZE, interpolation=cv2.INTER_LINEAR)
+            # 由于已经是 1080P，如果不需要额外缩放，可以直接用
+            display_frame = cv2.resize(frame, DISPLAY_SIZE, interpolation=cv2.INTER_LINEAR)
             
-            # 计算帧率
+            # 帧率
             fps_counter += 1
             current_time = time.time()
-            elapsed_time = current_time - fps_start_time
-            
-            if elapsed_time >= 1.0:
-                current_fps = fps_counter / elapsed_time
+            if current_time - fps_start_time >= 1.0:
+                current_fps = fps_counter / (current_time - fps_start_time)
                 fps_counter = 0
                 fps_start_time = current_time
-                # 打印调试
                 curr_exp = mvsdk.CameraGetExposureTime(hCamera) / 1000.0
-                print(f"FPS: {current_fps:.1f} | Exp: {curr_exp:.1f}ms | Res: {FrameHead.iWidth}x{FrameHead.iHeight}")
+                print(f"FPS: {current_fps:.1f} | Exp: {curr_exp:.1f}ms")
             
-            # 显示
             fps_text = f"FPS: {current_fps:.1f}"
             cv2.putText(display_frame, fps_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
@@ -170,24 +154,23 @@ def main_loop():
             if key == ord('s'):
                 if not is_recording:
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    output_filename = f"recording_{timestamp}.mp4"
-                    height, width = PROCESS_RESOLUTION[1], PROCESS_RESOLUTION[0]
+                    output_filename = f"rec_{timestamp}.mp4"
+                    # 录像使用裁剪后的实际分辨率
                     rec_fps = max(20, int(current_fps))
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    video_writer = cv2.VideoWriter(output_filename, fourcc, rec_fps, (width, height))
+                    video_writer = cv2.VideoWriter(output_filename, cv2.VideoWriter_fourcc(*'mp4v'), 
+                                                 rec_fps, (FrameHead.iWidth, FrameHead.iHeight))
                     if video_writer.isOpened():
                         is_recording = True
-                        print(f"✅ 开始录制: {output_filename}")
+                        print(f"✅ 开始录制: {output_filename} ({FrameHead.iWidth}x{FrameHead.iHeight})")
 
             elif key == ord('e'):
                 if is_recording:
                     if video_writer: video_writer.release()
-                    video_writer = None
                     is_recording = False
                     print("⏹️ 停止录制")
 
             elif is_recording and video_writer:
-                video_writer.write(high_res_frame)
+                video_writer.write(frame)
 
         except mvsdk.CameraException as e:
             if e.error_code != mvsdk.CAMERA_STATUS_TIME_OUT:
@@ -195,7 +178,6 @@ def main_loop():
 
     if is_recording and video_writer:
         video_writer.release()
-
     mvsdk.CameraUnInit(hCamera)
     mvsdk.CameraAlignFree(pFrameBuffer)
 
@@ -207,41 +189,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-(raft_gpu) nvidia@nvidia:~/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo$ python3 cv_grab.py
-0: MV-S2UC1606GC#0 USB3.0
-acProductSeries:U3V
-acProductName:MV-S2UC1606GC
-acFriendlyName:MV-S2UC1606GC#0
-acLinkName:MvCamera_f622_ca620
-acDriverVersion:1.0.0.0
-acSensorType:CMOS 16.0M
-acPortType:USB3.0
-acSn:044092820086
-uInstance:0
-⚠️ [警告] 相机不支持硬件降采样，帧率可能受限于USB带宽或传感器读出速度
-✨ [策略] 设置像素时钟为高速模式: Normal (Index: 0)
-📷 最终输出分辨率: 4096 x 4096
-FPS: 12.5 | Exp: 21.0ms | Res: 4096x4096
-FPS: 16.1 | Exp: 23.1ms | Res: 4096x4096
-FPS: 15.9 | Exp: 23.1ms | Res: 4096x4096
-FPS: 15.9 | Exp: 23.1ms | Res: 4096x4096
-FPS: 15.8 | Exp: 23.1ms | Res: 4096x4096
-FPS: 15.9 | Exp: 23.1ms | Res: 4096x4096
-FPS: 15.8 | Exp: 23.1ms | Res: 4096x4096
-FPS: 15.6 | Exp: 23.1ms | Res: 4096x4096
-FPS: 16.0 | Exp: 23.1ms | Res: 4096x4096
-FPS: 16.3 | Exp: 23.1ms | Res: 4096x4096
-FPS: 16.3 | Exp: 23.1ms | Res: 4096x4096
-FPS: 16.2 | Exp: 23.1ms | Res: 4096x4096
-FPS: 16.1 | Exp: 23.1ms | Res: 4096x4096
-FPS: 15.4 | Exp: 23.0ms | Res: 4096x4096
-^CTraceback (most recent call last):
-  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/cv_grab.py", line 209, in <module>
-    main()
-  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/cv_grab.py", line 204, in main
-    main_loop()
-  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/cv_grab.py", line 131, in main_loop
-    mvsdk.CameraImageProcess(hCamera, pRawData, pFrameBuffer, FrameHead)
-  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/mvsdk.py", line 699, in CameraImageProcess
-    err_code = _sdk.CameraImageProcess(hCamera, c_void_p(pbyIn), c_void_p(pbyOut), byref(pFrInfo))
-KeyboardInterrupt
