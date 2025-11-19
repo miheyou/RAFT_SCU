@@ -41,30 +41,46 @@ def main_loop():
     else:
         mvsdk.CameraSetIspOutFormat(hCamera, mvsdk.CAMERA_MEDIA_TYPE_BGR8)
 
-    # ==================== 新增代码：设置帧率模式 ====================
-    # 检查并打印支持的帧率模式
+    # ==================== 【关键修改1】设置最高速帧率模式 ====================
+    # 很多工业相机默认处于“普通”或“低速”模式以保证画质。
+    # 这里我们遍历并将相机的帧率模式设置为支持列表中的最后一项（通常是高速模式）。
     if cap.iFrameSpeedDesc > 0:
-        print(f"\n[Info] 相机支持 {cap.iFrameSpeedDesc} 种帧率模式:")
-        for i in range(cap.iFrameSpeedDesc):
-            # 这里的 pFrameSpeedDesc 是 ctypes 指针数组，可以通过下标访问
-            desc = cap.pFrameSpeedDesc[i].GetDescription()
-            print(f"  模式 [{i}]: {desc}")
-        
-        # 设置为索引最大的模式（通常是高速模式）
-        # 如果需要特定模式，例如普通模式，可以手动设置为 1
+        # 获取最大模式索引 (通常索引越大，速度越快)
         target_speed_index = cap.iFrameSpeedDesc - 1
+        # 获取描述文本
+        speed_desc = cap.pFrameSpeedDesc[target_speed_index].GetDescription()
+        print(f"✨ 正在设置帧率模式为: {speed_desc} (Index: {target_speed_index})")
+        
+        # 设置帧率模式
         mvsdk.CameraSetFrameSpeed(hCamera, target_speed_index)
-        print(f"[Info] 已调用 CameraSetFrameSpeed 设置为模式: {target_speed_index}\n")
-    # ==============================================================
+    # ========================================================================
 
     # 相机模式切换成连续采集
     mvsdk.CameraSetTriggerMode(hCamera, 0)
 
-    # 手动曝光，曝光时间20ms
-#    mvsdk.CameraSetAeState(hCamera, 0)
-#    mvsdk.CameraSetExposureTime(hCamera, 20 * 1000)
-# ===== 自动曝光配置 =====
+    # ==================== 【关键修改2】优化曝光以提升帧率 ====================
+    # 开启自动曝光
     mvsdk.CameraSetAeState(hCamera, 1)
+    
+    # --- 核心步骤：限制最大曝光时间 ---
+    # 如果环境光较暗，相机可能会把曝光时间拉长到 40ms-100ms，导致帧率掉到 25FPS 甚至 10FPS。
+    # 这里我们强制限制最大曝光时间为 30ms (30000微秒)，理论最大帧率可保底 33 FPS。
+    # 如果您需要 60FPS，请将此值改为 16000 (16ms)。
+    MAX_EXPOSURE_TIME_US = 30 * 1000  # 30ms
+    mvsdk.CameraSetAeExposureRange(hCamera, 200, MAX_EXPOSURE_TIME_US)
+    print(f"🚀 已限制自动曝光最大时间为: {MAX_EXPOSURE_TIME_US/1000} ms (以保证至少 {1000/(MAX_EXPOSURE_TIME_US/1000):.1f} FPS)")
+
+    # --- 配套步骤：提高模拟增益上限 ---
+    # 因为限制了曝光时间，画面可能会变暗。
+    # 我们需要允许相机使用更高的模拟增益来提亮画面。
+    # 通常增益范围是 16 ~ 64 或更高，这里设为最大值的一半作为上限，防止噪点过多。
+    max_gain = min(32, cap.sExposeDesc.uiAnalogGainMax) 
+    mvsdk.CameraSetAeAnalogGainRange(hCamera, cap.sExposeDesc.uiAnalogGainMin, max_gain)
+    
+    # 设置自动曝光目标亮度 (范围通常 0~255，默认 120 左右)
+    mvsdk.CameraSetAeTarget(hCamera, 120)
+    # ========================================================================
+
     # 白平衡
     mvsdk.CameraSetOnceWB(hCamera)
 
@@ -78,126 +94,106 @@ def main_loop():
     # 分配RGB buffer
     pFrameBuffer = mvsdk.CameraAlignMalloc(FrameBufferSize, 16)
 
-    # ==================== 新增：视频录制相关变量 ====================
-    is_recording = False                      # 是否正在录制
-    video_writer = None                       # OpenCV视频写入对象
-    output_filename = ""                      # 输出视频文件名
+    # 视频录制相关
+    is_recording = False
+    video_writer = None
+    output_filename = ""
     
-    # ==================== 新增：帧率计算相关变量 ====================
-    fps_counter = 0                           # 帧计数器
-    fps_start_time = time.time()              # 帧率计算开始时间
-    current_fps = 0                           # 当前帧率
-    # ================================================================
+    # 帧率计算
+    fps_counter = 0
+    fps_start_time = time.time()
+    current_fps = 0
     
-    # 定义处理分辨率和显示窗口大小
-    PROCESS_RESOLUTION = (2048, 1080)  # 处理分辨率
-    DISPLAY_SIZE = (640, 480)         # 显示窗口大小，可以根据需要调整
+    # 处理和显示尺寸
+    PROCESS_RESOLUTION = (2048, 1080)
+    DISPLAY_SIZE = (640, 480)
+
+    print("\n🔴 提示: 如果帧率仍然很低，请尝试增加环境光亮度，或者手动将曝光时间设置得更短。\n")
 
     while (cv2.waitKey(1) & 0xFF) != ord('q'):
         try:
+            # 获取图像，超时时间设为 200ms
             pRawData, FrameHead = mvsdk.CameraGetImageBuffer(hCamera, 200)
-            mvsdk.CameraImageProcess(
-                hCamera, pRawData, pFrameBuffer, FrameHead)
+            
+            mvsdk.CameraImageProcess(hCamera, pRawData, pFrameBuffer, FrameHead)
             mvsdk.CameraReleaseImageBuffer(hCamera, pRawData)
 
             if platform.system() == "Windows":
                 mvsdk.CameraFlipFrameBuffer(pFrameBuffer, FrameHead, 1)
 
-            # 转换为numpy数组
-            frame_data = (mvsdk.c_ubyte *
-                          FrameHead.uBytes).from_address(pFrameBuffer)
+            frame_data = (mvsdk.c_ubyte * FrameHead.uBytes).from_address(pFrameBuffer)
             frame = np.frombuffer(frame_data, dtype=np.uint8)
             frame = frame.reshape((FrameHead.iHeight, FrameHead.iWidth,
                                   1 if FrameHead.uiMediaType == mvsdk.CAMERA_MEDIA_TYPE_MONO8 else 3))
 
-            # 修改这里：调整处理分辨率，但显示时缩小
-            high_res_frame = cv2.resize(
-                frame, PROCESS_RESOLUTION, interpolation=cv2.INTER_LINEAR)
-            display_frame = cv2.resize(
-                high_res_frame, DISPLAY_SIZE, interpolation=cv2.INTER_LINEAR)
+            # 缩放处理
+            high_res_frame = cv2.resize(frame, PROCESS_RESOLUTION, interpolation=cv2.INTER_LINEAR)
+            display_frame = cv2.resize(high_res_frame, DISPLAY_SIZE, interpolation=cv2.INTER_LINEAR)
             
-            # ==================== 新增：帧率计算和显示 ====================
+            # 更新帧率
             fps_counter += 1
             current_time = time.time()
             elapsed_time = current_time - fps_start_time
-            
-            # 每秒更新一次帧率
             if elapsed_time >= 1.0:
                 current_fps = fps_counter / elapsed_time
                 fps_counter = 0
                 fps_start_time = current_time
+                
+                # 调试打印：查看当前的曝光时间，确认是否被限制住了
+                # (注意：CameraGetExposureTime 获取的值是微秒)
+                curr_exp = mvsdk.CameraGetExposureTime(hCamera) / 1000.0
+                print(f"FPS: {current_fps:.1f} | 当前曝光时间: {curr_exp:.1f} ms")
             
-            # 在画面上显示帧率和录制状态
+            # OSD 显示
             fps_text = f"FPS: {current_fps:.1f}"
-            cv2.putText(display_frame, fps_text, (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            cv2.putText(display_frame, fps_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
-            # 显示录制状态
             if is_recording:
-                rec_text = "REC"
-                cv2.putText(display_frame, rec_text, (DISPLAY_SIZE[0]-80, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                # 添加红色录制指示器
+                cv2.putText(display_frame, "REC", (DISPLAY_SIZE[0]-80, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                 cv2.circle(display_frame, (DISPLAY_SIZE[0]-40, 20), 8, (0, 0, 255), -1)
-            # ================================================================
 
-            cv2.imshow(
-                "Press q to end, s to start recording, e to stop", display_frame)
+            cv2.imshow("Press q:Exit s:Record e:Stop", display_frame)
 
             key = cv2.waitKey(1) & 0xFF
-            if key == ord('s'):  # 开始录制
+            if key == ord('s'):
                 if not is_recording:
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                     output_filename = f"recording_{timestamp}.mp4"
-
-                    # 使用高分辨率保存视频
                     height, width = PROCESS_RESOLUTION[1], PROCESS_RESOLUTION[0]
-                    fps = 25
-
+                    # 使用当前实际帧率作为录像帧率
+                    rec_fps = max(20, int(current_fps)) 
                     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    video_writer = cv2.VideoWriter(
-                        output_filename, fourcc, fps, (width, height))
-
+                    video_writer = cv2.VideoWriter(output_filename, fourcc, rec_fps, (width, height))
                     if video_writer.isOpened():
                         is_recording = True
-                        print(
-                            f"✅ 开始录制视频，分辨率: {width}x{height}，保存为: {output_filename}")
+                        print(f"✅ 开始录制: {output_filename} (FPS: {rec_fps})")
                     else:
-                        print("❌ 无法创建视频文件，请检查路径或编码器！")
+                        print("❌ 录制启动失败")
 
-            elif key == ord('e'):  # 停止录制
+            elif key == ord('e'):
                 if is_recording:
-                    if video_writer is not None:
-                        video_writer.release()
-                        video_writer = None
+                    if video_writer: video_writer.release()
+                    video_writer = None
                     is_recording = False
-                    print("⏹️ 停止录制视频")
+                    print("⏹️ 录制停止")
 
-            elif is_recording:  # 如果正在录制，写入高分辨率帧
-                if video_writer is not None and video_writer.isOpened():
-                    video_writer.write(high_res_frame)
+            elif is_recording and video_writer:
+                video_writer.write(high_res_frame)
 
         except mvsdk.CameraException as e:
             if e.error_code != mvsdk.CAMERA_STATUS_TIME_OUT:
-                print("CameraGetImageBuffer failed({}): {}".format(
-                    e.error_code, e.message))
+                print("Error: {}".format(e.message))
 
-    # 释放资源
-    if is_recording:
-        if video_writer is not None:
-            video_writer.release()
-        is_recording = False
-        print("🛑 程序退出前已停止录制")
-
+    if is_recording and video_writer:
+        video_writer.release()
+    
     mvsdk.CameraUnInit(hCamera)
     mvsdk.CameraAlignFree(pFrameBuffer)
-
 
 def main():
     try:
         main_loop()
     finally:
         cv2.destroyAllWindows()
-
 
 main()
