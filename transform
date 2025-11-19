@@ -3,8 +3,8 @@ import cv2
 import numpy as np
 import mvsdk
 import platform
-import datetime
-import time
+import datetime  # 用于生成带时间戳的文件名
+import time     # 用于帧率计算
 
 def main_loop():
     # 枚举相机
@@ -30,154 +30,148 @@ def main_loop():
 
     # 获取相机特性描述
     cap = mvsdk.CameraGetCapability(hCamera)
+
+    # 判断是黑白相机还是彩色相机
     monoCamera = (cap.sIspCapacity.bMonoSensor != 0)
 
+    # 黑白相机让ISP直接输出MONO数据
     if monoCamera:
         mvsdk.CameraSetIspOutFormat(hCamera, mvsdk.CAMERA_MEDIA_TYPE_MONO8)
     else:
         mvsdk.CameraSetIspOutFormat(hCamera, mvsdk.CAMERA_MEDIA_TYPE_BGR8)
 
-    # ==================== 【核心修改】强制设置 ROI (裁剪) ====================
-    # 既然硬件不支持 Binning，为了提速，我们手动设置一个较小的分辨率 (ROI)
-    # 原始分辨率 4096 x 4096 太大，跑不动。
-    # 这里我们将分辨率设置为 1920 x 1080 (居中裁剪)
-    
-    # 1. 获取当前分辨率配置
-    pImageResolution = mvsdk.CameraGetImageResolution(hCamera)
-    
-    # 2. 设置目标分辨率 (您可以修改这里的值，比如 2048x2048)
-    target_w = 1920
-    target_h = 1080
-    
-    # 确保不超过相机最大物理分辨率
-    max_w = cap.sResolutionRange.iWidthMax
-    max_h = cap.sResolutionRange.iHeightMax
-    
-    if target_w > max_w: target_w = max_w
-    if target_h > max_h: target_h = max_h
-    
-    # 3. 计算居中偏移量
-    offset_x = (max_w - target_w) // 2
-    offset_y = (max_h - target_h) // 2
-    
-    # 4. 应用设置
-    # iIndex = 0xff 表示自定义 ROI 模式
-    pImageResolution.iIndex = 0xff 
-    pImageResolution.iWidth = target_w
-    pImageResolution.iHeight = target_h
-    pImageResolution.iWidthFOV = target_w
-    pImageResolution.iHeightFOV = target_h
-    pImageResolution.iHOffsetFOV = offset_x
-    pImageResolution.iVOffsetFOV = offset_y
-    
-    mvsdk.CameraSetImageResolution(hCamera, pImageResolution)
-    print(f"✂️ [策略] 已应用 ROI 裁剪: {target_w}x{target_h} (居中偏移: {offset_x},{offset_y})")
-    print("   (注: 视野会变小，但这是在该相机上提升帧率的唯一办法)")
-    # ======================================================================
-
-    # 设置高速模式
-    if cap.iFrameSpeedDesc > 0:
-        target_speed_index = cap.iFrameSpeedDesc - 1
-        mvsdk.CameraSetFrameSpeed(hCamera, target_speed_index)
-
-    # 连续采集
+    # 相机模式切换成连续采集
     mvsdk.CameraSetTriggerMode(hCamera, 0)
 
-    # 自动曝光配置 (限制最大曝光时间)
+    # ===== 自动曝光配置 =====
     mvsdk.CameraSetAeState(hCamera, 1)
-    # 限制曝光时间为 30ms
-    mvsdk.CameraSetAeExposureRange(hCamera, 200, 30 * 1000)
-    # 提高增益上限
-    max_gain = min(64, cap.sExposeDesc.uiAnalogGainMax)
-    mvsdk.CameraSetAeAnalogGainRange(hCamera, cap.sExposeDesc.uiAnalogGainMin, max_gain)
-    mvsdk.CameraSetAeTarget(hCamera, 120)
     mvsdk.CameraSetOnceWB(hCamera)
 
-    # 开始采集
+    # 让SDK内部取图线程开始工作
     mvsdk.CameraPlay(hCamera)
 
-    # 最终确认分辨率
-    final_res = mvsdk.CameraGetImageResolution(hCamera)
-    print(f"📷 最终输出分辨率: {final_res.iWidth} x {final_res.iHeight}")
+    # 计算buffer大小
+    FrameBufferSize = cap.sResolutionRange.iWidthMax * \
+        cap.sResolutionRange.iHeightMax * (1 if monoCamera else 3)
 
-    # Buffer 计算
-    FrameBufferSize = final_res.iWidth * final_res.iHeight * (1 if monoCamera else 3)
+    # 分配RGB buffer
     pFrameBuffer = mvsdk.CameraAlignMalloc(FrameBufferSize, 16)
 
-    # 变量初始化
-    is_recording = False
-    video_writer = None
-    fps_counter = 0
-    fps_start_time = time.time()
-    current_fps = 0
+    # ==================== 修改点 1：变量定义 ====================
+    is_recording = False                      # 是否正在录制
+    # 注意：移除了 video_writer，因为我们使用 SDK 内部录制
     
-    # 显示设置
-    DISPLAY_SIZE = (640, 480)
+    # ==================== 帧率计算相关变量 ====================
+    fps_counter = 0                           
+    fps_start_time = time.time()              
+    current_fps = 0                           
+    
+    # 显示窗口大小
+    PROCESS_RESOLUTION = (2048, 1080)  # 仅用于OpenCV显示缩放，不影响SDK录像分辨率
+    DISPLAY_SIZE = (640, 480)         
 
     while (cv2.waitKey(1) & 0xFF) != ord('q'):
         try:
+            # 获取图像
             pRawData, FrameHead = mvsdk.CameraGetImageBuffer(hCamera, 200)
+            
+            # ISP处理：Raw -> RGB/Mono，数据存入 pFrameBuffer
             mvsdk.CameraImageProcess(hCamera, pRawData, pFrameBuffer, FrameHead)
+            
+            # 释放 Raw buffer
             mvsdk.CameraReleaseImageBuffer(hCamera, pRawData)
 
+            # Windows下可能需要翻转
             if platform.system() == "Windows":
                 mvsdk.CameraFlipFrameBuffer(pFrameBuffer, FrameHead, 1)
+            
+            # ==================== 修改点 2：SDK 录像推流 ====================
+            # 如果正在录制，将处理好的帧（pFrameBuffer）推送到 SDK 录像流中
+            # SDK 录像使用的是原始分辨率（FrameHead.iWidth x FrameHead.iHeight）
+            if is_recording:
+                mvsdk.CameraPushFrame(hCamera, pFrameBuffer, FrameHead)
 
+            # ==================== 以下为 OpenCV 显示逻辑 ====================
+            # 转换为numpy数组用于显示 (不影响录像，录像用的是 pFrameBuffer)
             frame_data = (mvsdk.c_ubyte * FrameHead.uBytes).from_address(pFrameBuffer)
             frame = np.frombuffer(frame_data, dtype=np.uint8)
             frame = frame.reshape((FrameHead.iHeight, FrameHead.iWidth,
                                   1 if FrameHead.uiMediaType == mvsdk.CAMERA_MEDIA_TYPE_MONO8 else 3))
 
-            # 由于已经是 1080P，如果不需要额外缩放，可以直接用
-            display_frame = cv2.resize(frame, DISPLAY_SIZE, interpolation=cv2.INTER_LINEAR)
+            # 缩放用于显示
+            high_res_frame = cv2.resize(
+                frame, PROCESS_RESOLUTION, interpolation=cv2.INTER_LINEAR)
+            display_frame = cv2.resize(
+                high_res_frame, DISPLAY_SIZE, interpolation=cv2.INTER_LINEAR)
             
-            # 帧率
+            # 计算帧率
             fps_counter += 1
             current_time = time.time()
-            if current_time - fps_start_time >= 1.0:
-                current_fps = fps_counter / (current_time - fps_start_time)
+            elapsed_time = current_time - fps_start_time
+            if elapsed_time >= 1.0:
+                current_fps = fps_counter / elapsed_time
                 fps_counter = 0
                 fps_start_time = current_time
-                curr_exp = mvsdk.CameraGetExposureTime(hCamera) / 1000.0
-                print(f"FPS: {current_fps:.1f} | Exp: {curr_exp:.1f}ms")
             
+            # 显示信息
             fps_text = f"FPS: {current_fps:.1f}"
-            cv2.putText(display_frame, fps_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            cv2.putText(display_frame, fps_text, (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
             if is_recording:
-                cv2.putText(display_frame, "REC", (DISPLAY_SIZE[0]-80, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                cv2.putText(display_frame, "REC (SDK)", (DISPLAY_SIZE[0]-150, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                 cv2.circle(display_frame, (DISPLAY_SIZE[0]-40, 20), 8, (0, 0, 255), -1)
 
-            cv2.imshow("Press q:Exit s:Rec e:Stop", display_frame)
+            cv2.imshow("Press q:Quit, s:Start Rec, e:Stop Rec", display_frame)
 
             key = cv2.waitKey(1) & 0xFF
-            if key == ord('s'):
+            
+            # ==================== 修改点 3：录像控制逻辑 ====================
+            if key == ord('s'):  # 开始录制
                 if not is_recording:
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    output_filename = f"rec_{timestamp}.mp4"
-                    # 录像使用裁剪后的实际分辨率
-                    rec_fps = max(20, int(current_fps))
-                    video_writer = cv2.VideoWriter(output_filename, cv2.VideoWriter_fourcc(*'mp4v'), 
-                                                 rec_fps, (FrameHead.iWidth, FrameHead.iHeight))
-                    if video_writer.isOpened():
+                    # 注意：SDK录像通常保存为 .avi 或原始格式，这里命名为 avi
+                    output_filename = f"recording_sdk_{timestamp}.avi"
+                    
+                    # 设置录像文件的帧率。
+                    # 建议：设置为当前实际采集的帧率 (current_fps) 或固定值 (如 30)
+                    # 这里取整 current_fps，如果还没计算出来则默认 25
+                    record_fps = int(current_fps) if current_fps > 0 else 25
+                    
+                    print(f"尝试初始化录像: {output_filename}, FPS: {record_fps}")
+
+                    # CameraInitRecord 参数说明:
+                    # hCamera: 句柄
+                    # iFormat: 0=不压缩, 1=MSCV方式压缩 (推荐1，体积小)
+                    # pcSavePath: 保存路径
+                    # b2GLimit: True (大于2G自动分割)
+                    # dwQuality: 录像质量 (1-100), 推荐 80-90
+                    # iFrameRate: 录像文件的帧率
+                    ret = mvsdk.CameraInitRecord(hCamera, 1, output_filename, 1, 90, record_fps)
+                    
+                    if ret == 0:
                         is_recording = True
-                        print(f"✅ 开始录制: {output_filename} ({FrameHead.iWidth}x{FrameHead.iHeight})")
+                        print(f"✅ SDK录像开始。保存路径: {output_filename}")
+                    else:
+                        print(f"❌ SDK录像初始化失败，错误码: {ret}")
 
-            elif key == ord('e'):
+            elif key == ord('e'):  # 停止录制
                 if is_recording:
-                    if video_writer: video_writer.release()
+                    mvsdk.CameraStopRecord(hCamera)
                     is_recording = False
-                    print("⏹️ 停止录制")
-
-            elif is_recording and video_writer:
-                video_writer.write(frame)
+                    print("⏹️ SDK录像停止")
 
         except mvsdk.CameraException as e:
             if e.error_code != mvsdk.CAMERA_STATUS_TIME_OUT:
-                print("Error: {}".format(e.message))
+                print("CameraGetImageBuffer failed({}): {}".format(
+                    e.error_code, e.message))
 
-    if is_recording and video_writer:
-        video_writer.release()
+    # 释放资源
+    if is_recording:
+        mvsdk.CameraStopRecord(hCamera)
+        is_recording = False
+
     mvsdk.CameraUnInit(hCamera)
     mvsdk.CameraAlignFree(pFrameBuffer)
 
@@ -187,5 +181,4 @@ def main():
     finally:
         cv2.destroyAllWindows()
 
-if __name__ == "__main__":
-    main()
+main()
