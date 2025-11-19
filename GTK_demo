@@ -228,5 +228,30 @@ int main (int argc, char **argv)
     return 0;
 }
 
+// ... (前面保持不变)
 
+    //获得相机的特性描述结构体。该结构体中包含了相机可设置的各种参数的范围信息。决定了相关函数的参数
+    CameraGetCapability(g_hCamera,&g_tCapability);
+    BOOL bMonoSensor = g_tCapability.sIspCapacity.bMonoSensor;
+
+    // ==================== 修改自动曝光和帧率配置 ====================
+    // 1. 【关键】关闭自动曝光（AE），采用手动设置
+    // 自动曝光通常会拉长曝光时间以保证画质，从而降低帧率。
+    CameraSetAeState(g_hCamera, FALSE); 
+
+    // 2. 【核心】设置曝光时间 (单位: 微秒 us)
+    // 要达到 30FPS，曝光时间必须 <= 33333us。这里我们设置 10ms (10000us) 来确保帧率上限很高。
+    CameraSetExposureTime(g_hCamera, 10000); 
+    
+    // 3. 【补偿】设置模拟增益 (弥补曝光时间变短带来的画面变暗，需要根据实际亮度调整)
+    CameraSetAnalogGain(g_hCamera, 64); // 初始值可以设为 64，如果画面太暗请调高。
+    
+    // 4. (可选) 设置帧速模式为高速 (2)
+    // 确保相机以最快速度传输数据。
+    CameraSetFrameSpeed(g_hCamera, 2); // 0:低速, 1:普通, 2:高速
+    // =================================================================
+
+    CameraGetEyeCount(g_hCamera, &g_EyeCount);
+
+// ... (后续代码保持不变)
 
