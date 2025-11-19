@@ -183,3 +183,35 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+(raft_gpu) nvidia@nvidia:~/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo$ python3 cv_zyx.py
+0: MV-S2UC1606GC#0 USB3.0
+acProductSeries:U3V
+acProductName:MV-S2UC1606GC
+acFriendlyName:MV-S2UC1606GC#0
+acLinkName:MvCamera_f622_ca620
+acDriverVersion:1.0.0.0
+acSensorType:CMOS 16.0M
+acPortType:USB3.0
+acSn:044092820086
+uInstance:0
+已尝试开启高速模式
+自动曝光已关闭
+曝光时间设置为: 10ms, 模拟增益: 64
+
+=== 操作说明 ===
+  's': 开始录像 (使用SDK内置录像)
+  'e': 停止录像
+  'q': 退出程序
+================
+
+实时FPS: 16.6
+实时FPS: 21.5
+实时FPS: 21.6
+实时FPS: 21.6
+实时FPS: 21.5
+实时FPS: 21.5
+实时FPS: 21.7
+实时FPS: 21.7
+实时FPS: 21.6
+实时FPS: 21.7
+实时FPS: 21.7
