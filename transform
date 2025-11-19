@@ -197,3 +197,85 @@ def main():
         cv2.destroyAllWindows()
 
 main()
+(raft_gpu) nvidia@nvidia:~/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo$ python3 cv_grab.py
+0: MV-S2UC1606GC#0 USB3.0
+acProductSeries:U3V
+acProductName:MV-S2UC1606GC
+acFriendlyName:MV-S2UC1606GC#0
+acLinkName:MvCamera_f622_ca620
+acDriverVersion:1.0.0.0
+acSensorType:CMOS 16.0M
+acPortType:USB3.0
+acSn:044092820086
+uInstance:0
+✨ 正在设置帧率模式为: Normal (Index: 0)
+🚀 已限制自动曝光最大时间为: 30.0 ms (以保证至少 33.3 FPS)
+
+🔴 提示: 如果帧率仍然很低，请尝试增加环境光亮度，或者手动将曝光时间设置得更短。
+
+FPS: 12.7 | 当前曝光时间: 15.3 ms
+FPS: 15.8 | 当前曝光时间: 15.3 ms
+FPS: 15.9 | 当前曝光时间: 15.3 ms
+FPS: 15.8 | 当前曝光时间: 15.3 ms
+FPS: 16.0 | 当前曝光时间: 15.3 ms
+FPS: 16.2 | 当前曝光时间: 15.3 ms
+FPS: 16.3 | 当前曝光时间: 15.3 ms
+FPS: 16.3 | 当前曝光时间: 15.3 ms
+FPS: 15.9 | 当前曝光时间: 15.3 ms
+FPS: 15.7 | 当前曝光时间: 16.4 ms
+FPS: 15.9 | 当前曝光时间: 16.4 ms
+FPS: 16.0 | 当前曝光时间: 16.4 ms
+FPS: 15.7 | 当前曝光时间: 16.4 ms
+FPS: 16.0 | 当前曝光时间: 16.4 ms
+FPS: 16.0 | 当前曝光时间: 16.4 ms
+FPS: 16.1 | 当前曝光时间: 16.4 ms
+FPS: 14.9 | 当前曝光时间: 16.4 ms
+FPS: 14.6 | 当前曝光时间: 16.4 ms
+FPS: 15.8 | 当前曝光时间: 18.6 ms
+FPS: 13.5 | 当前曝光时间: 10.6 ms
+FPS: 13.6 | 当前曝光时间: 12.0 ms
+FPS: 13.9 | 当前曝光时间: 13.1 ms
+FPS: 13.2 | 当前曝光时间: 9.8 ms
+FPS: 13.2 | 当前曝光时间: 9.8 ms
+FPS: 13.5 | 当前曝光时间: 9.8 ms
+FPS: 13.4 | 当前曝光时间: 9.8 ms
+FPS: 13.6 | 当前曝光时间: 9.8 ms
+FPS: 13.2 | 当前曝光时间: 9.8 ms
+FPS: 13.0 | 当前曝光时间: 9.8 ms
+FPS: 11.8 | 当前曝光时间: 9.8 ms
+FPS: 11.1 | 当前曝光时间: 16.9 ms
+FPS: 12.0 | 当前曝光时间: 27.7 ms
+FPS: 12.8 | 当前曝光时间: 30.0 ms
+FPS: 13.0 | 当前曝光时间: 30.0 ms
+FPS: 13.1 | 当前曝光时间: 30.0 ms
+FPS: 13.1 | 当前曝光时间: 30.0 ms
+FPS: 12.9 | 当前曝光时间: 30.0 ms
+FPS: 13.4 | 当前曝光时间: 30.0 ms
+FPS: 13.1 | 当前曝光时间: 10.1 ms
+FPS: 13.2 | 当前曝光时间: 9.6 ms
+FPS: 13.4 | 当前曝光时间: 9.6 ms
+FPS: 13.3 | 当前曝光时间: 9.6 ms
+FPS: 13.1 | 当前曝光时间: 9.6 ms
+FPS: 13.3 | 当前曝光时间: 9.6 ms
+FPS: 13.7 | 当前曝光时间: 9.6 ms
+FPS: 15.4 | 当前曝光时间: 19.9 ms
+FPS: 16.0 | 当前曝光时间: 19.9 ms
+FPS: 16.3 | 当前曝光时间: 19.9 ms
+FPS: 16.4 | 当前曝光时间: 19.9 ms
+FPS: 16.0 | 当前曝光时间: 19.9 ms
+FPS: 16.3 | 当前曝光时间: 19.9 ms
+FPS: 16.3 | 当前曝光时间: 19.9 ms
+FPS: 15.8 | 当前曝光时间: 19.9 ms
+FPS: 16.2 | 当前曝光时间: 19.9 ms
+FPS: 16.0 | 当前曝光时间: 20.9 ms
+FPS: 15.7 | 当前曝光时间: 23.0 ms
+^CTraceback (most recent call last):
+  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/cv_grab.py", line 199, in <module>
+    main()
+  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/cv_grab.py", line 195, in main
+    main_loop()
+  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/cv_grab.py", line 118, in main_loop
+    mvsdk.CameraImageProcess(hCamera, pRawData, pFrameBuffer, FrameHead)
+  File "/home/nvidia/RAFT_life/CameraSDK_V2.1.0.49_0925/CameraSDK/demo/python_demo/mvsdk.py", line 699, in CameraImageProcess
+    err_code = _sdk.CameraImageProcess(hCamera, c_void_p(pbyIn), c_void_p(pbyOut), byref(pFrInfo))
+KeyboardInterrupt
