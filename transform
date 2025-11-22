@@ -12,3 +12,5 @@ Collecting git+https://github.com/LiheYoung/Depth-Anything.git
   
   note: This error originates from a subprocess, and is likely not a problem with pip.
 ERROR: Failed to build 'git+https://github.com/LiheYoung/Depth-Anything.git' when git clone --filter=blob:none --quiet https://github.com/liheyoung/depth-anything.git /tmp/pip-req-build-ssor9pel
+
+git clone https://mirror.ghproxy.com/https://github.com/LiheYoung/Depth-Anything.git
